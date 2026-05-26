@@ -22,7 +22,7 @@ import {
   recordDbOperation
 } from '../utils/metrics';
 
-const VAULT_CONTRACT_ID = process.env.VAULT_CONTRACT_ID || '';
+const VAULT_CONTRACT_ID = config.stellar.vaultContractId;
 const POLL_INTERVAL_MS = 5000;
 
 const prisma = new PrismaClient();
@@ -147,10 +147,11 @@ export function extractProtocolName(event: ContractEvent): string {
  * Extract network from config (canonical source of truth).
  */
 function extractNetwork(): Network {
-  const n = config.stellar.network.toUpperCase();
-  if (n === 'TESTNET') return Network.TESTNET;
-  if (n === 'FUTURENET') return Network.FUTURENET;
-  return Network.MAINNET;
+  switch (config.stellar.network) {
+    case 'testnet': return Network.TESTNET;
+    case 'futurenet': return Network.FUTURENET;
+    case 'mainnet': return Network.MAINNET;
+  }
 }
 
 /**
