@@ -47,13 +47,20 @@ describe('Vault Enhanced Events Tests', () => {
 
     describe('Batch Processing (Issue #55)', () => {
         it('should process a batch of valid events in a transaction', async () => {
+            // Issue #65 — events must carry asset (topics[1]) and protocol
+            // (topics[2]) string topics or they flow to the DLQ instead of
+            // being persisted. The test events below were updated to match.
             const events = [
                 {
                     type: 'deposit' as const,
                     ledger: 100,
                     txHash: 'tx_batch_1',
                     contractId: CONTRACT_ID,
-                    topics: [stellarSdk.nativeToScVal('deposit')],
+                    topics: [
+                        stellarSdk.nativeToScVal('deposit', { type: 'string' }),
+                        stellarSdk.nativeToScVal('USDC', { type: 'string' }),
+                        stellarSdk.nativeToScVal('vault', { type: 'string' }),
+                    ],
                     value: stellarSdk.nativeToScVal({ user: WALLET, amount: 1000n, shares: 100n })
                 },
                 {
@@ -61,7 +68,11 @@ describe('Vault Enhanced Events Tests', () => {
                     ledger: 101,
                     txHash: 'tx_batch_2',
                     contractId: CONTRACT_ID,
-                    topics: [stellarSdk.nativeToScVal('withdraw')],
+                    topics: [
+                        stellarSdk.nativeToScVal('withdraw', { type: 'string' }),
+                        stellarSdk.nativeToScVal('USDC', { type: 'string' }),
+                        stellarSdk.nativeToScVal('vault', { type: 'string' }),
+                    ],
                     value: stellarSdk.nativeToScVal({ user: WALLET, amount: 500n, shares: 50n })
                 }
             ];
