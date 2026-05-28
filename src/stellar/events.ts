@@ -77,38 +77,56 @@ export function getEventMetrics(): Readonly<EventMetrics> {
   return { ...metrics };
 }
 
-// --- Event context extraction helpers (Issue #51) ---
+// --- Event context extraction helpers (Issues #51, #65) ---
 
 /**
- * Extract asset symbol from event topics or value.
- * Topics[1] carries the asset symbol when present; falls back to 'USDC'.
+ * Read a string topic at the given index. Throws when the topic is
+ * missing or doesn't decode to a non-empty string — #65 explicitly
+ * removes the previous USDC/vault fallbacks so malformed events flow
+ * through to the DLQ instead of silently being persisted as USDC.
  */
-function extractAssetSymbol(event: ContractEvent): string {
-  if (event.topics.length > 1) {
-    try {
-      const raw = scValToNative(event.topics[1]);
-      if (typeof raw === 'string' && raw.length > 0) return raw;
-    } catch {
-      // fall through to default
-    }
+function readStringTopic(
+  event: ContractEvent,
+  index: number,
+  label: string
+): string {
+  if (event.topics.length <= index) {
+    throw new Error(
+      `[Event] Missing ${label} topic at index ${index} (txHash=${event.txHash}, type=${event.type})`
+    );
   }
-  return 'USDC';
+  let raw: unknown;
+  try {
+    raw = scValToNative(event.topics[index]);
+  } catch (err) {
+    throw new Error(
+      `[Event] Failed to decode ${label} topic at index ${index} (txHash=${event.txHash}): ${
+        err instanceof Error ? err.message : 'unknown decode error'
+      }`
+    );
+  }
+  if (typeof raw !== 'string' || raw.length === 0) {
+    throw new Error(
+      `[Event] ${label} topic at index ${index} is not a non-empty string (txHash=${event.txHash}, got=${typeof raw})`
+    );
+  }
+  return raw;
 }
 
 /**
- * Extract protocol name from event topics or value.
- * Topics[2] carries the protocol name when present; falls back to 'vault'.
+ * Extract asset symbol from event topics. Topic[1] carries the asset.
+ * Throws when missing — see {@link readStringTopic}.
  */
-function extractProtocolName(event: ContractEvent): string {
-  if (event.topics.length > 2) {
-    try {
-      const raw = scValToNative(event.topics[2]);
-      if (typeof raw === 'string' && raw.length > 0) return raw;
-    } catch {
-      // fall through to default
-    }
-  }
-  return 'vault';
+export function extractAssetSymbol(event: ContractEvent): string {
+  return readStringTopic(event, 1, 'asset symbol');
+}
+
+/**
+ * Extract protocol name from event topics. Topic[2] carries the protocol.
+ * Throws when missing — see {@link readStringTopic}.
+ */
+export function extractProtocolName(event: ContractEvent): string {
+  return readStringTopic(event, 2, 'protocol name');
 }
 
 /**

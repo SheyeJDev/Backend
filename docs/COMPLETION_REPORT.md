@@ -397,17 +397,20 @@ Wait 5 seconds and repeat
 ## Known Limitations & Future Improvements
 
 ### Current Limitations
-- Asset symbol hardcoded to 'USDC' (TODO: extract from event)
-- Protocol name hardcoded to 'vault' (TODO: extract from event)
-- Network hardcoded to 'MAINNET' (TODO: get from config)
+- Network resolved from config rather than per-event payload
+
+### Resolved
+- Asset symbol and protocol name are now parsed directly from event
+  topics (`topic[1]` and `topic[2]` respectively). Events that omit
+  either topic now flow to the DLQ rather than being persisted under
+  the legacy `USDC` / `vault` defaults — see #65.
 
 ### Future Improvements
-1. Extract asset symbol and protocol from event data
-2. Implement dead-letter queue for failed events
-3. Add metrics and monitoring
-4. Batch process events for better throughput
-5. Add event validation and schema checking
-6. Implement retry logic with exponential backoff
+1. Implement dead-letter queue for failed events
+2. Add metrics and monitoring
+3. Batch process events for better throughput
+4. Add event validation and schema checking
+5. Implement retry logic with exponential backoff
 
 ---
 
