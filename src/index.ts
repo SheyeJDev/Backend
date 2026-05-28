@@ -1,7 +1,7 @@
 import express from 'express'
 import cors, { type CorsOptions } from 'cors'
 import helmet from 'helmet'
-import { config } from './config/env'
+import { config, validateProductionConfig } from './config/env'
 import { markReady } from './config/readiness'
 import { errorHandler } from './middleware/errorHandler'
 import { requestLogger } from './middleware/logger'
@@ -71,6 +71,7 @@ app.use('/api/admin', adminRouter)
 app.use(errorHandler)
 
 async function main() {
+  validateProductionConfig()
   await connectDb()
   markReady('database')
 

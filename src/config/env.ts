@@ -11,19 +11,18 @@ const nodeEnv = process.env.NODE_ENV || 'development'
 const isProduction = nodeEnv === 'production'
 
 /**
- * Logging in this file deliberately uses console.warn / console.error rather
- * than the winston logger: `env.ts` is imported before the logger transports
- * are guaranteed to be ready, and we want startup failures to land on stderr
- * unambiguously. Anything that ships beyond this module routes through the
- * shared `logger` instead.
+ * Logging in this file deliberately uses `console.*` rather than the winston
+ * logger: `env.ts` is imported before the logger transports are guaranteed
+ * to be ready, and we want startup output to land on stderr unambiguously.
+ * Anything that ships beyond this module routes through the shared `logger`.
  */
 
 /**
- * Validate all required environment variables at startup.
- * Fails fast with clear error messages.
- *
- * Production has a stricter set than non-production — secrets that are merely
- * useful in dev (e.g. WALLET_ENCRYPTION_KEY) are mandatory in production.
+ * Validate the *always-required* environment variables at module load.
+ * Production has additional checks (see `validateProductionConfig` below)
+ * that are deferred to explicit invocation from `main()` so test suites can
+ * load this module under `NODE_ENV=production` without supplying every
+ * production secret.
  */
 function validateAllRequiredEnvVars(): void {
   const requiredVars = [
@@ -37,24 +36,15 @@ function validateAllRequiredEnvVars(): void {
     'JWT_SEED',
   ]
 
-  // Production-only secrets and feature flags. These can be left unset in
-  // development without crashing the boot, but production refuses to start
-  // without them.
-  const productionOnlyVars = ['WALLET_ENCRYPTION_KEY']
-
-  const allRequired = isProduction
-    ? [...requiredVars, ...productionOnlyVars]
-    : requiredVars
-
   const missing: string[] = []
-  for (const key of allRequired) {
+  for (const key of requiredVars) {
     if (!process.env[key]) {
       missing.push(key)
     }
   }
 
   if (missing.length > 0) {
-    const missingList = missing.map(k => `  - ${k}`).join('\n')
+    const missingList = missing.map((k) => `  - ${k}`).join('\n')
     throw new Error(
       `Critical environment variables are missing:\n${missingList}\n\nPlease set these variables before starting the application.`
     )
@@ -92,32 +82,23 @@ function validateStellarKey(secretKey: string, network: 'testnet' | 'mainnet' | 
     )
   }
 
-  // Use console.error in non-test so this surfaces even before winston is wired
   if (network === 'mainnet' && !isProduction) {
-    console.error('')
-    console.error('⚠️  CRITICAL WARNING: Using MAINNET in non-production environment!')
-    console.error('⚠️  This could result in real financial loss!')
-    console.error('⚠️  Verify STELLAR_NETWORK and NODE_ENV settings immediately!')
-    console.error('')
+    console.warn('')
+    console.warn('⚠️  CRITICAL WARNING: Using MAINNET in non-production environment!')
+    console.warn('⚠️  This could result in real financial loss!')
+    console.warn('⚠️  Verify STELLAR_NETWORK and NODE_ENV settings immediately!')
+    console.warn('')
   }
 }
 
 /**
- * Parse `CORS_ORIGINS` into an explicit allowlist. Defaults to `*` when unset
- * outside production. Production refuses to start without an explicit list —
- * preventing the previous default of a wildcard `cors()` from leaking into
- * production by accident.
+ * Parse `CORS_ORIGINS` into an allowlist. Permissive at module load so tests
+ * can boot under `NODE_ENV=production` without supplying it. The strict
+ * production check lives in `validateProductionConfig` and runs from `main()`.
  */
 function parseCorsOrigins(): string[] | '*' {
   const raw = process.env.CORS_ORIGINS?.trim()
-  if (!raw || raw === '*') {
-    if (isProduction) {
-      throw new Error(
-        'CORS_ORIGINS must be set to an explicit comma-separated list in production (wildcard "*" is not allowed).'
-      )
-    }
-    return '*'
-  }
+  if (!raw || raw === '*') return '*'
   return raw
     .split(',')
     .map((s) => s.trim())
@@ -186,4 +167,31 @@ export const config = {
       max: parseInt(process.env.AUTH_RATE_LIMIT_MAX || '20'),
     },
   },
+}
+
+/**
+ * Production-only invariants. Called from `main()` before `app.listen` so the
+ * process fails fast in production if any are missing, while still letting
+ * test suites import this module under `NODE_ENV=production` without
+ * supplying every production secret.
+ */
+export function validateProductionConfig(): void {
+  if (!isProduction) return
+
+  const missing: string[] = []
+  if (!process.env.WALLET_ENCRYPTION_KEY) {
+    missing.push('WALLET_ENCRYPTION_KEY')
+  }
+  if (missing.length > 0) {
+    const missingList = missing.map((k) => `  - ${k}`).join('\n')
+    throw new Error(
+      `Critical production secrets are missing:\n${missingList}\n\nPlease set these variables before starting the application in production.`
+    )
+  }
+
+  if (corsOrigins === '*') {
+    throw new Error(
+      'CORS_ORIGINS must be set to an explicit comma-separated list in production (wildcard "*" is not allowed).'
+    )
+  }
 }
