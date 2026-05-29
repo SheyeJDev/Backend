@@ -14,6 +14,8 @@ process.env.WALLET_ENCRYPTION_KEY =
   process.env.WALLET_ENCRYPTION_KEY ??
   'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2'
 
+process.env.TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN ?? 'test-twilio-auth-token'
+
 // Generous limits so integration tests are not blocked by rate limiters (#101)
 process.env.RATE_LIMIT_MAX = '100000'
 process.env.AUTH_RATE_LIMIT_MAX = '100000'

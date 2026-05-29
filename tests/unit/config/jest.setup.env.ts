@@ -25,3 +25,4 @@ process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? 'test-anthropic
 process.env.DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgresql://localhost:5432/test_db'
 process.env.JWT_SEED = process.env.JWT_SEED ?? 'test-jwt-seed-value'
+process.env.TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN ?? 'test-twilio-auth-token'
