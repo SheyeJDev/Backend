@@ -186,7 +186,9 @@ async function gracefulShutdown(signal: string): Promise<void> {
 // and exit with a nonzero code so process supervisors / K8s restart us.
 
 async function initServices(): Promise<void> {
-  // 0. Validate production configuration
+  // 0. Validate startup configuration
+
+  // Admin token — required in production
   if (config.nodeEnv === 'production') {
     const adminToken = process.env.ADMIN_API_TOKEN
     if (!adminToken || adminToken.length < 8) {
@@ -196,6 +198,16 @@ async function initServices(): Promise<void> {
     }
     logger.info('[Startup] Admin API token configured ✓')
   }
+
+  // Twilio auth token — WhatsApp routes are always mounted; reject at startup
+  // if the token is absent so spoofed webhook calls are impossible.
+  if (!process.env.TWILIO_AUTH_TOKEN) {
+    const msg =
+      'TWILIO_AUTH_TOKEN must be set — WhatsApp webhook signature validation requires it'
+    logger.error('[Startup] Configuration validation failed — cannot continue', { error: msg })
+    throw new Error(msg)
+  }
+  logger.info('[Startup] Twilio auth token configured ✓')
 
   // 1. Database
   try {

@@ -1,7 +1,6 @@
 import express, { Request, Response } from 'express'
 import { validateRequest, twiml } from 'twilio'
 import { handleWhatsAppMessage } from '../whatsapp/handler'
-import { config } from '../config/env'
 
 const router = express.Router()
 
@@ -13,22 +12,27 @@ router.get('/webhook', (_req: Request, res: Response) => {
 })
 
 /**
- * Handles incoming WhatsApp messages from Twilio
+ * Handles incoming WhatsApp messages from Twilio.
+ *
+ * Signature validation is performed whenever TWILIO_AUTH_TOKEN is set.
+ * If the token is absent the request is rejected with 403 — preventing
+ * spoofed calls even on staging/dev where NODE_ENV is not 'production'.
  * https://www.twilio.com/docs/usage/security#validating-requests
  */
 router.post('/webhook', async (req: Request, res: Response) => {
-  const signature = req.header('x-twilio-signature')
-  const authToken = process.env.TWILIO_AUTH_TOKEN || ''
+  const authToken = process.env.TWILIO_AUTH_TOKEN
 
-  const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`
-
-  if (!signature || !authToken) {
-    return res.status(403).send('Forbidden')
+  if (!authToken) {
+    // Token not configured: reject rather than silently skip validation
+    return res.status(403).send('Forbidden: TWILIO_AUTH_TOKEN not configured')
   }
 
+  const signature = req.header('x-twilio-signature') ?? ''
+  const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`
   const isValid = validateRequest(authToken, signature, url, req.body)
-  if (!isValid && config.nodeEnv === 'production') {
-    return res.status(403).send('Forbidden')
+
+  if (!isValid) {
+    return res.status(403).send('Forbidden: invalid Twilio signature')
   }
 
   const from = (req.body.From as string) || ''

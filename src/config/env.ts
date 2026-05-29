@@ -23,6 +23,7 @@ function validateAllRequiredEnvVars(): void {
     'DATABASE_URL',
     'JWT_SEED',
     'WALLET_ENCRYPTION_KEY',
+    'TWILIO_AUTH_TOKEN',
     'NODE_ENV',
   ]
 
