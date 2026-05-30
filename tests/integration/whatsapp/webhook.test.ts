@@ -157,15 +157,13 @@ describe('WhatsApp webhook routes', () => {
       expect(mockHandleMessage).toHaveBeenCalledWith(TWILIO_PAYLOAD.From, '');
     });
 
-    it('passes with invalid Twilio signature in non-production environment', async () => {
-      // In test env (non-production), invalid signatures are still allowed
+    it('rejects invalid Twilio signature regardless of NODE_ENV', async () => {
       mockValidateRequest.mockReturnValue(false);
       const res = await request(app)
         .post('/api/whatsapp/webhook')
         .set('x-twilio-signature', 'bad-sig')
         .send(TWILIO_PAYLOAD);
-      // NODE_ENV=test → not production, so request still proceeds
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(403);
     });
   });
 });

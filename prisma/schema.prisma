@@ -250,3 +250,28 @@ model DeadLetterEvent {
   @@index([createdAt])
   @@map("dead_letter_events")
 }
+
+model CustodialWallet {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  publicKey       String   @unique
+  encryptedSecret String
+  iv              String
+  authTag         String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@map("custodial_wallets")
+}
+
+model AuthNonce {
+  id            String   @id @default(uuid())
+  stellarPubKey String   @unique
+  nonce         String
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  @@index([expiresAt])
+  @@map("auth_nonces")
+}

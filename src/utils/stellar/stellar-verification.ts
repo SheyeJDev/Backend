@@ -1,34 +1,21 @@
 import { config } from '../../config/env';
 import { Keypair } from '@stellar/stellar-sdk';
 
-interface StoredNonce {
-    nonce: string;
-    expiresAt: number;
-    stellarPubKey: string;
+export interface NonceEntry {
+  nonce: string;
+  expiresAt: number; // ms since epoch
+  stellarPubKey: string;
 }
 
+/**
+ * In-memory nonce store. Exported as _nonceStoreForTests so integration tests
+ * can inspect and pre-populate nonces without hitting the database.
+ */
+export const _nonceStoreForTests = new Map<string, NonceEntry>();
 
 export default class StellarVerification {
-    /** Verify a Stellar signature.
-     * Freighter signs the raw UTF-8 bytes of the message.
-     * Stellar's Keypair.verify() expects a Buffer and a base64-encoded signature.
-     */
-    constructor(
-        /** In-memory nonce store — keyed by stellarPubKey */
-        private readonly nonceStore: Map<string, StoredNonce>,
-    ) { }
-
-    /** Remove expired nonces (called lazily on every challenge request) */
-    purgeExpiredNonces(): void {
-        const now = Date.now();
-        for (const [key, entry] of this.nonceStore.entries()) {
-            if (entry.expiresAt <= now) this.nonceStore.delete(key);
-        }
-    }
-
     /**
      * Verify a Stellar signature.
-     *
      * Freighter signs the raw UTF-8 bytes of the message.
      * Stellar's Keypair.verify() expects a Buffer and a base64-encoded signature.
      */
@@ -47,6 +34,16 @@ export default class StellarVerification {
         }
     }
 
+    /** Remove all expired nonces (lazy cleanup called from challenge). */
+    purgeExpiredNonces(): void {
+        const now = Date.now();
+        for (const [key, entry] of _nonceStoreForTests.entries()) {
+            if (entry.expiresAt <= now) {
+                _nonceStoreForTests.delete(key);
+            }
+        }
+    }
+
     /** Map STELLAR_NETWORK env value to Prisma Network enum */
     resolveNetwork(): 'MAINNET' | 'TESTNET' | 'FUTURENET' {
         switch (config.stellar.network.toLowerCase()) {
@@ -59,16 +56,7 @@ export default class StellarVerification {
                 return 'TESTNET';
         }
     }
-
 }
 
-
-// Module-level singleton
-
-const nonceStore = new Map<string, StoredNonce>();
-
-/** Shared singleton — imported by auth-controller and tests */
-export const stellarVerification = new StellarVerification(nonceStore);
-
-// Export the raw store for testing purposes only
-export { nonceStore as _nonceStoreForTests };
+/** Shared singleton — imported by auth-controller */
+export const stellarVerification = new StellarVerification();

@@ -17,6 +17,7 @@ function setValidEnv() {
   process.env.DATABASE_URL = 'postgresql://localhost/db'
   process.env.JWT_SEED = 'seed'
   process.env.WALLET_ENCRYPTION_KEY = VALID_WALLET_KEY
+  process.env.TWILIO_AUTH_TOKEN = 'test-twilio-auth-token'
   process.env.NODE_ENV = 'test'
 }
 
@@ -85,6 +86,15 @@ describe('Environment Configuration', () => {
       expect(() => {
         require('../../../src/config/env')
       }).toThrow(/WALLET_ENCRYPTION_KEY is invalid/)
+    })
+
+    it('throws error when TWILIO_AUTH_TOKEN is missing', () => {
+      setValidEnv()
+      delete process.env.TWILIO_AUTH_TOKEN
+
+      expect(() => {
+        require('../../../src/config/env')
+      }).toThrow(/Missing required environment variable: TWILIO_AUTH_TOKEN/)
     })
   })
 

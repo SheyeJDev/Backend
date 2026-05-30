@@ -32,6 +32,8 @@ export async function teardownTestDatabase(): Promise<void> {
     prisma.position.deleteMany(),
     prisma.session.deleteMany(),
     prisma.protocolRate.deleteMany(),
+    prisma.custodialWallet.deleteMany(),
+    prisma.authNonce.deleteMany(),
     prisma.user.deleteMany(),
   ])
   await prisma.$disconnect()
@@ -132,6 +134,18 @@ export function createMockDb() {
       }),
       update: jest.fn().mockResolvedValue({}),
       count: jest.fn().mockResolvedValue(0),
+      deleteMany: jest.fn(),
+    },
+    custodialWallet: {
+      findUnique: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      create: jest.fn(),
+      deleteMany: jest.fn(),
+    },
+    authNonce: {
+      findUnique: jest.fn(),
+      upsert: jest.fn(),
+      delete: jest.fn(),
       deleteMany: jest.fn(),
     },
     $connect: jest.fn().mockResolvedValue(undefined),

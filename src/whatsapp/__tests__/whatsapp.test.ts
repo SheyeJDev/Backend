@@ -1,3 +1,26 @@
+// Prevent Prisma binary from starting — no real DB needed in these tests
+jest.mock('../../db', () => ({ __esModule: true, default: {} }))
+
+// Stub out custodial wallet creation to avoid Stellar network + DB dependency
+jest.mock('../../stellar/wallet', () => ({
+  createCustodialWallet: jest.fn().mockResolvedValue({
+    publicKey: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+  }),
+  getWalletByUserId: jest.fn().mockResolvedValue({
+    publicKey: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+  }),
+}))
+
+// Prevent Anthropic SDK from making any network connections on initialization
+jest.mock('@anthropic-ai/sdk', () => ({
+  __esModule: true,
+  default: jest.fn().mockImplementation(() => ({
+    messages: {
+      create: jest.fn().mockRejectedValue(new Error('Anthropic not available in tests')),
+    },
+  })),
+}))
+
 import express from 'express'
 import request from 'supertest'
 import crypto from 'crypto'

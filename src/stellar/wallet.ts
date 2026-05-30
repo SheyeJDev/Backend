@@ -1,5 +1,6 @@
 import { Keypair } from '@stellar/stellar-sdk';
 import * as crypto from 'crypto';
+import db from '../db';
 import { logger } from '../utils/logger';
 
 const ALGORITHM = 'aes-256-gcm';
@@ -12,21 +13,6 @@ function getEncryptionKey(): string {
   return key;
 }
 
-interface CustodialWallet {
-  userId: string;
-  publicKey: string;
-  encryptedSecret: string;
-  iv: string;
-  authTag: string;
-}
-
-// In-memory storage (replace with database in production)
-const walletStore = new Map<string, CustodialWallet>();
-
-/**
- * Encrypt secret key
- * SECURITY: Never log secret keys. Use environment-based encryption key.
- */
 function encryptSecret(secret: string): { encrypted: string; iv: string; authTag: string } {
   const key = Buffer.from(getEncryptionKey(), 'hex');
   const iv = crypto.randomBytes(16);
@@ -35,18 +21,13 @@ function encryptSecret(secret: string): { encrypted: string; iv: string; authTag
   let encrypted = cipher.update(secret, 'utf8', 'hex');
   encrypted += cipher.final('hex');
 
-  const authTag = cipher.getAuthTag();
-
   return {
     encrypted,
     iv: iv.toString('hex'),
-    authTag: authTag.toString('hex'),
+    authTag: cipher.getAuthTag().toString('hex'),
   };
 }
 
-/**
- * Decrypt secret key
- */
 function decryptSecret(encrypted: string, iv: string, authTag: string): string {
   const key = Buffer.from(getEncryptionKey(), 'hex');
   const decipher = crypto.createDecipheriv(ALGORITHM, key, Buffer.from(iv, 'hex'));
@@ -59,44 +40,48 @@ function decryptSecret(encrypted: string, iv: string, authTag: string): string {
 }
 
 /**
- * Create custodial wallet for user
+ * Create a custodial wallet for a user and persist it to the database.
  *
  * SECURITY NOTE: This is a custodial solution where the backend holds user keys.
  * Users trust the backend to secure their funds. Consider non-custodial alternatives
  * for production use cases requiring higher security guarantees.
+ *
+ * Key rotation / backup: rotate WALLET_ENCRYPTION_KEY by re-encrypting all rows
+ * with the new key before deploying. Back up the database regularly; losing the
+ * encryption key means wallets cannot be recovered.
  */
-export async function createCustodialWallet(userId: string): Promise<CustodialWallet> {
-  if (walletStore.has(userId)) {
+export async function createCustodialWallet(userId: string) {
+  const existing = await db.custodialWallet.findUnique({ where: { userId } });
+  if (existing) {
     throw new Error(`Wallet already exists for user ${userId}`);
   }
 
   const keypair = Keypair.random();
   const { encrypted, iv, authTag } = encryptSecret(keypair.secret());
 
-  const wallet: CustodialWallet = {
-    userId,
-    publicKey: keypair.publicKey(),
-    encryptedSecret: encrypted,
-    iv,
-    authTag,
-  };
-
-  walletStore.set(userId, wallet);
+  const wallet = await db.custodialWallet.create({
+    data: {
+      userId,
+      publicKey: keypair.publicKey(),
+      encryptedSecret: encrypted,
+      iv,
+      authTag,
+    },
+  });
 
   logger.info(`[Wallet] Created for user ${userId}: ${wallet.publicKey}`);
-
   return wallet;
 }
 
 /**
- * Get wallet by user ID
+ * Get wallet record by user ID.
  */
-export async function getWalletByUserId(userId: string): Promise<CustodialWallet | null> {
-  return walletStore.get(userId) || null;
+export async function getWalletByUserId(userId: string) {
+  return db.custodialWallet.findUnique({ where: { userId } });
 }
 
 /**
- * Get keypair for user (decrypts secret)
+ * Decrypt and return the Stellar Keypair for a user.
  */
 export async function getKeypairForUser(userId: string): Promise<Keypair> {
   const wallet = await getWalletByUserId(userId);
@@ -110,8 +95,9 @@ export async function getKeypairForUser(userId: string): Promise<Keypair> {
 }
 
 /**
- * List all wallet public keys (for admin/debugging)
+ * List all wallet public keys (for admin/debugging).
  */
-export function listWallets(): string[] {
-  return Array.from(walletStore.values()).map(w => w.publicKey);
+export async function listWallets(): Promise<string[]> {
+  const wallets = await db.custodialWallet.findMany({ select: { publicKey: true } });
+  return wallets.map(w => w.publicKey);
 }

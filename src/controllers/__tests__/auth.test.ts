@@ -27,6 +27,12 @@ const mockPrisma = {
     deleteMany: jest.fn(),
     delete: jest.fn(),
   },
+  authNonce: {
+    findUnique: jest.fn(),
+    upsert: jest.fn(),
+    delete: jest.fn(),
+    deleteMany: jest.fn(),
+  },
 };
 
 jest.mock('@prisma/client', () => ({
@@ -69,8 +75,14 @@ jest.mock('../../config/env', () => ({
   },
 }));
 
+// DB mock — auth-controller imports db from '../../db'
+jest.mock('../../db', () => ({
+  __esModule: true,
+  default: mockPrisma,
+}));
+
 // Import after mocks
-import { challenge, verify, logout, _nonceStoreForTests } from '../../controllers/auth-controller';
+import { challenge, verify, logout } from '../../controllers/auth-controller';
 import { AuthMiddleware } from '../../middleware/authenticate';
 import { JwtAdapter } from '../../config';
 
@@ -94,13 +106,28 @@ function makeReq(overrides: Partial<Request> = {}): Request {
   } as unknown as Request;
 }
 
-// Challenge endpoint
+const NONCE_TTL_MS_TEST = 5 * 60 * 1000;
+
+/** Seed the DB mock so verify() can find a valid nonce. */
+function seedNonce(pubKey: string, kp: Keypair, ttlOffset = NONCE_TTL_MS_TEST) {
+  const nonce = `nw-auth-test-${Date.now()}`;
+  mockPrisma.authNonce.findUnique.mockResolvedValue({
+    stellarPubKey: pubKey,
+    nonce,
+    expiresAt: new Date(Date.now() + ttlOffset),
+  });
+  return nonce;
+}
+
+// ── Challenge endpoint ────────────────────────────────────────────────────────
 
 describe('POST /api/auth/challenge', () => {
   const keypair = Keypair.random();
 
   beforeEach(() => {
-    _nonceStoreForTests.clear();
+    jest.clearAllMocks();
+    mockPrisma.authNonce.deleteMany.mockResolvedValue({ count: 0 });
+    mockPrisma.authNonce.upsert.mockResolvedValue({});
   });
 
   it('returns 400 when stellarPubKey is missing', async () => {
@@ -129,21 +156,18 @@ describe('POST /api/auth/challenge', () => {
     expect(body.nonce).toMatch(/^nw-auth-/);
   });
 
-  it('overwrites an existing nonce with a fresh one on a second call', async () => {
+  it('upserts (overwrites) an existing nonce on a second challenge call', async () => {
     const pubKey = keypair.publicKey();
     const req = makeReq({ body: { stellarPubKey: pubKey } });
 
     await challenge(req, makeRes());
-    const first = _nonceStoreForTests.get(pubKey)?.nonce;
-
     await challenge(req, makeRes());
-    const second = _nonceStoreForTests.get(pubKey)?.nonce;
 
-    expect(first).not.toBe(second);
+    expect(mockPrisma.authNonce.upsert).toHaveBeenCalledTimes(2);
   });
 });
 
-// Verify endpoint
+// ── Verify endpoint ───────────────────────────────────────────────────────────
 
 describe('POST /api/auth/verify', () => {
   const keypair = Keypair.random();
@@ -157,25 +181,13 @@ describe('POST /api/auth/verify', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    _nonceStoreForTests.clear();
     (JwtAdapter.generateToken as jest.Mock).mockResolvedValue('mock.jwt.token');
     mockPrisma.user.findUnique.mockResolvedValue(null);
     mockPrisma.user.create.mockResolvedValue(mockUser);
     mockPrisma.session.create.mockResolvedValue({});
+    mockPrisma.authNonce.delete.mockResolvedValue({});
+    mockPrisma.authNonce.findUnique.mockResolvedValue(null);
   });
-
-  /** Seed the nonce store and return the signed nonce */
-  function seedNonce(pubkey: string, kp: Keypair, ttlOffset = NONCE_TTL_MS_TEST): string {
-    const nonce = `nw-auth-test-${Date.now()}`;
-    _nonceStoreForTests.set(pubkey, {
-      nonce,
-      expiresAt: Date.now() + ttlOffset,
-      stellarPubKey: pubkey,
-    });
-    return nonce;
-  }
-
-  const NONCE_TTL_MS_TEST = 5 * 60 * 1000;
 
   it('returns 400 when required fields are missing', async () => {
     const req = makeReq({ body: {} });
@@ -185,6 +197,7 @@ describe('POST /api/auth/verify', () => {
   });
 
   it('returns 401 when no active challenge exists for the public key', async () => {
+    mockPrisma.authNonce.findUnique.mockResolvedValue(null);
     const sig = Buffer.from(keypair.sign(Buffer.from('irrelevant'))).toString('base64');
     const req = makeReq({ body: { stellarPubKey: pubKey, signature: sig } });
     const res = makeRes();
@@ -196,10 +209,10 @@ describe('POST /api/auth/verify', () => {
   });
 
   it('returns 401 for an expired nonce', async () => {
-    _nonceStoreForTests.set(pubKey, {
-      nonce: 'old-nonce',
-      expiresAt: Date.now() - 1, // already expired
+    mockPrisma.authNonce.findUnique.mockResolvedValue({
       stellarPubKey: pubKey,
+      nonce: 'old-nonce',
+      expiresAt: new Date(Date.now() - 1), // already expired
     });
     const sig = Buffer.from(keypair.sign(Buffer.from('old-nonce'))).toString('base64');
     const req = makeReq({ body: { stellarPubKey: pubKey, signature: sig } });
@@ -244,10 +257,10 @@ describe('POST /api/auth/verify', () => {
     const sigBytes = keypair.sign(Buffer.from(nonce, 'utf8'));
     const sig = Buffer.from(sigBytes).toString('base64');
 
-    // First call succeeds
+    // First call succeeds; second call returns null (nonce was consumed/deleted)
     await verify(makeReq({ body: { stellarPubKey: pubKey, signature: sig } }), makeRes());
 
-    // Second call with same public key — nonce was consumed
+    mockPrisma.authNonce.findUnique.mockResolvedValue(null); // nonce consumed
     const res2 = makeRes();
     await verify(makeReq({ body: { stellarPubKey: pubKey, signature: sig } }), res2);
     expect(res2.status).toHaveBeenCalledWith(401);
@@ -274,9 +287,23 @@ describe('POST /api/auth/verify', () => {
 
     expect(mockPrisma.user.create).not.toHaveBeenCalled();
   });
+
+  it('cross-instance: nonce stored in DB is available to any instance', async () => {
+    // Simulate a different instance finding the same nonce from the DB
+    const nonce = `nw-auth-cross-${Date.now()}`;
+    mockPrisma.authNonce.findUnique.mockResolvedValue({
+      stellarPubKey: pubKey,
+      nonce,
+      expiresAt: new Date(Date.now() + NONCE_TTL_MS_TEST),
+    });
+    const sig = Buffer.from(keypair.sign(Buffer.from(nonce, 'utf8'))).toString('base64');
+    const res = makeRes();
+    await verify(makeReq({ body: { stellarPubKey: pubKey, signature: sig } }), res);
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
 });
 
-// AuthMiddleware
+// ── AuthMiddleware ────────────────────────────────────────────────────────────
 
 describe('AuthMiddleware.validateJwt', () => {
   const next = jest.fn();
@@ -364,7 +391,7 @@ describe('AuthMiddleware.validateJwt', () => {
   });
 });
 
-// Logout endpoint
+// ── Logout endpoint ───────────────────────────────────────────────────────────
 
 describe('POST /api/auth/logout', () => {
   beforeEach(() => {

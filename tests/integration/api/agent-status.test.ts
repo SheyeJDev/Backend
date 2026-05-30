@@ -47,6 +47,17 @@ import app from '../../../src/index';
 describe('Agent Status Endpoint - Real Health Tracking', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        // Re-apply default resolutions after clearAllMocks so the route handler
+        // always receives a resolved promise from the DB mock (Jest 30 clears
+        // mockResolvedValue implementations when clearAllMocks is called).
+        mockDb.agentLog.findFirst.mockResolvedValue({
+            id: 'log-1',
+            status: 'SUCCESS',
+            action: 'ANALYZE',
+            details: { positionsChecked: 5, rebalancesTriggered: 1 },
+            createdAt: new Date('2026-05-26T10:00:00Z'),
+        });
+        mockDb.protocolRate.findMany.mockResolvedValue([]);
     });
 
     describe('GET /api/protocols/agent/status', () => {
