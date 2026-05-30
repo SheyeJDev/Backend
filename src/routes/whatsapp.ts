@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express'
 import { validateRequest, twiml } from 'twilio'
 import { handleWhatsAppMessage } from '../whatsapp/handler'
+import { logger } from '../utils/logger'
 
 const router = express.Router()
 

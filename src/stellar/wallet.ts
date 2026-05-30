@@ -1,6 +1,7 @@
 import { Keypair } from '@stellar/stellar-sdk';
 import * as crypto from 'crypto';
 import db from '../db';
+import { logger } from '../utils/logger';
 
 const ALGORITHM = 'aes-256-gcm';
 
@@ -68,7 +69,7 @@ export async function createCustodialWallet(userId: string) {
     },
   });
 
-  console.log(`[Wallet] Created for user ${userId}: ${wallet.publicKey}`);
+  logger.info(`[Wallet] Created for user ${userId}: ${wallet.publicKey}`);
   return wallet;
 }
 
