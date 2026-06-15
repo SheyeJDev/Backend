@@ -95,16 +95,27 @@ npm start
 
 Rate limiting
 -------------
-The API applies layered rate limits (all configurable via `.env`):
+The API applies layered rate limits (all configurable via `.env`). Health probe paths (`/health/live`, `/health/ready`, `/health/*`) are exempt from the global limiter so Kubernetes and load-balancer checks are not throttled.
 
 | Limiter | Routes | Default | Env vars |
 |---------|--------|---------|----------|
-| Global | All routes | 100 req / 15 min | `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_MS` |
+| Global | All routes except health probes | 100 req / 15 min | `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_MS` |
 | Auth | `/api/auth/*` | 20 req / 15 min | `AUTH_RATE_LIMIT_MAX`, `AUTH_RATE_LIMIT_WINDOW_MS` |
 | Admin | `/api/admin/*` | 10 req / 15 min | `ADMIN_RATE_LIMIT_MAX`, `ADMIN_RATE_LIMIT_WINDOW_MS` |
 | Internal | `/api/agent/*` | 500 req / 1 min | `INTERNAL_RATE_LIMIT_MAX`, `INTERNAL_RATE_LIMIT_WINDOW_MS` |
+| Webhook | `/api/whatsapp/*` | 30 req / 1 min | `WEBHOOK_RATE_LIMIT_MAX`, `WEBHOOK_RATE_LIMIT_WINDOW_MS` |
+
+Public unauthenticated read endpoints (`/api/protocols/*`, `/api/vault/state`, `/api/stellar/*`, `/api/analytics/protocol-performance`) are covered by the global limiter. Authenticated routes stack the global limiter with JWT validation.
 
 **Bypass (trusted services only):** set `TRUSTED_IPS` to a comma-separated allowlist of IPs, or send the shared secret in the `X-Internal-Token` header (`INTERNAL_SERVICE_TOKEN`). Mount order matters: the bypass middleware runs before limiters in `src/index.ts`.
+
+Trust proxy
+-----------
+When the API runs behind Nginx, Cloudflare, AWS ALB, Heroku, or Kubernetes ingress, set `TRUST_PROXY` so Express reads the real client IP from `X-Forwarded-For` (used by rate limiting and logging). Default is `1` (one reverse-proxy hop). Use `0` or `false` when the process is exposed directly; use `2` when traffic passes through CDN + load balancer. See `.env.example` for supported values.
+
+Security headers (Helmet)
+-------------------------
+In production, Helmet sets strict headers: CSP (`default-src 'none'`), HSTS (1 year, includeSubDomains, preload), `Referrer-Policy: no-referrer`, and cross-origin policies. Development and test disable CSP/HSTS so local tooling is not blocked. Configuration lives in `src/middleware/security.ts`.
 
 For production secret handling, migrations, and rollback steps see `docs/PRODUCTION_DEPLOYMENT.md`.
 
