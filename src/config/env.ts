@@ -43,7 +43,7 @@ function validateAllRequiredEnvVars(): void {
   if (walletKey && !/^[0-9a-f]{64}$/i.test(walletKey)) {
     errors.push(
       `WALLET_ENCRYPTION_KEY is invalid: must be exactly 64 hexadecimal characters (32 bytes). ` +
-        `Got length ${walletKey.length}. Generate one with: openssl rand -hex 32`
+      `Got length ${walletKey.length}. Generate one with: openssl rand -hex 32`
     )
   }
 
@@ -60,7 +60,7 @@ function validateAllRequiredEnvVars(): void {
     const list = errors.map(e => `  - ${e}`).join('\n')
     throw new Error(
       `Application cannot start — environment configuration errors:\n${list}\n\n` +
-        `Fix the variables above and restart the application.`
+      `Fix the variables above and restart the application.`
     )
   }
 }
@@ -146,8 +146,8 @@ function validateStellarKey(secretKey: string, network: 'testnet' | 'mainnet' | 
   if (network === 'mainnet' && env !== 'production') {
     console.warn(
       '\n⚠️  CRITICAL WARNING: Using MAINNET in non-production environment!\n' +
-        '⚠️  This could result in real financial loss!\n' +
-        '⚠️  Verify STELLAR_NETWORK and NODE_ENV settings immediately!\n'
+      '⚠️  This could result in real financial loss!\n' +
+      '⚠️  Verify STELLAR_NETWORK and NODE_ENV settings immediately!\n'
     )
   }
 }
@@ -264,5 +264,6 @@ export const config = {
   },
   dlq: {
     alertThreshold: parseInt(process.env.DLQ_ALERT_THRESHOLD || '50'),
+    alertCooldownMs: parseInt(process.env.DLQ_ALERT_COOLDOWN_MS || '900000'), // 15 minutes default
   },
 }

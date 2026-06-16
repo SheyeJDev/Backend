@@ -13,6 +13,8 @@ import { xdr } from '@stellar/stellar-sdk'
 import { logger } from '../utils/logger'
 import db from '../db'
 import { updateDlqSize } from '../utils/metrics'
+import config from '../config'
+import { alertingService, type DLQAlertPayload } from '../services/alerting'
 
 export type DeadLetterEventStatus = 'PENDING' | 'RETRIED' | 'RESOLVED'
 
@@ -34,8 +36,6 @@ const LEGACY_DLQ_FILE = path.join(
   __dirname,
   '../../logs/dead_letter_queue.json'
 )
-
-const SIZE_ALERT_THRESHOLD = 50
 
 function serializeScVal(value: unknown): string | unknown {
   if (value instanceof xdr.ScVal) {
@@ -275,10 +275,111 @@ export class DeadLetterQueue {
   }
 
   private static checkSizeAlert(size: number): void {
-    if (size >= SIZE_ALERT_THRESHOLD) {
-      logger.error(
-        `[DLQ ALERT] Dead-letter queue size is critically high: ${size} events. Manual intervention required.`
-      )
+    const threshold = config.dlq.alertThreshold
+
+    if (size >= threshold) {
+      this.emitDLQAlert(size, 'critical')
+    } else if (size > 0 && size < threshold) {
+      // Alert has normalized, clear the state
+      alertingService.clearDLQAlertState()
     }
+  }
+
+  /**
+   * Emit DLQ alert with rich metadata to external channels
+   */
+  private static async emitDLQAlert(
+    size: number,
+    severity: 'critical' | 'warning' | 'info'
+  ): Promise<void> {
+    try {
+      // Get status breakdown
+      const statusBreakdown = await this.getStatusBreakdown()
+      const oldestPending = await this.getOldestPendingEvent()
+
+      // Calculate age in human-readable format
+      let ageHumanReadable = 'N/A'
+      if (oldestPending) {
+        const ageMs = Date.now() - new Date(oldestPending.createdAt).getTime()
+        ageHumanReadable = this.formatAge(ageMs)
+      }
+
+      const payload: DLQAlertPayload = {
+        title: `[CRITICAL] DLQ Size Alert: ${size} events queued`,
+        description: `The Dead-Letter Queue has reached ${size} events. This indicates that recent event processing failures are not being automatically recovered. Immediate investigation required to identify and fix the root cause.`,
+        severity,
+        component: 'dlq',
+        dlqSize: size,
+        statusBreakdown,
+        oldestPendingAge: oldestPending
+          ? {
+              eventId: oldestPending.id,
+              ageMs: Date.now() - new Date(oldestPending.createdAt).getTime(),
+              ageHumanReadable,
+            }
+          : undefined,
+        adminLink: `${process.env.ADMIN_DASHBOARD_URL || 'https://admin.neurowealth.io'}/dlq`,
+        metadata: {
+          threshold: config.dlq.alertThreshold,
+          timestamp: new Date().toISOString(),
+        },
+      }
+
+      await alertingService.emitDLQAlert(payload)
+    } catch (error) {
+      logger.error('[DLQ] Error emitting alert:', error)
+    }
+  }
+
+  /**
+   * Get DLQ status breakdown (pending, retried, resolved counts)
+   */
+  private static async getStatusBreakdown(): Promise<{
+    pending: number
+    retried: number
+    resolved: number
+  }> {
+    const pending = await (db as any).deadLetterEvent.count({
+      where: { status: 'PENDING' },
+    })
+    const retried = await (db as any).deadLetterEvent.count({
+      where: { status: 'RETRIED' },
+    })
+    const resolved = await (db as any).deadLetterEvent.count({
+      where: { status: 'RESOLVED' },
+    })
+
+    return { pending, retried, resolved }
+  }
+
+  /**
+   * Get the oldest pending event (for age tracking)
+   */
+  private static async getOldestPendingEvent(): Promise<PrismaDeadLetterRow | null> {
+    return (db as any).deadLetterEvent.findFirst({
+      where: { status: 'PENDING' },
+      orderBy: { createdAt: 'asc' },
+    })
+  }
+
+  /**
+   * Format milliseconds to human-readable age (e.g., "2 hours 15 minutes")
+   */
+  private static formatAge(ms: number): string {
+    const seconds = Math.floor(ms / 1000)
+    const minutes = Math.floor(seconds / 60)
+    const hours = Math.floor(minutes / 60)
+    const days = Math.floor(hours / 24)
+
+    if (days > 0) {
+      return `${days} day${days > 1 ? 's' : ''} ${hours % 24} hour${hours % 24 !== 1 ? 's' : ''}`
+    }
+    if (hours > 0) {
+      return `${hours} hour${hours > 1 ? 's' : ''} ${minutes % 60} minute${minutes % 60 !== 1 ? 's' : ''}`
+    }
+    if (minutes > 0) {
+      return `${minutes} minute${minutes > 1 ? 's' : ''}`
+    }
+    return `${seconds} second${seconds !== 1 ? 's' : ''}`
   }
 }
