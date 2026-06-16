@@ -11,8 +11,8 @@
     "lint": "npm run lint:types && npm run lint:style",
     "lint:types": "tsc --noEmit",
     "lint:style": "eslint \"src/**/*.ts\" \"prisma/**/*.ts\"",
-    "format": "prettier --write .github/workflows/node-ci.yml package.json .prettierrc.json eslint.config.mjs src/nlp/parser.ts src/stellar/dlq.ts src/whatsapp/handler.ts src/whatsapp/userManager.ts tests/helpers/testDb.ts tests/integration/stellar/events.test.ts tests/unit/nlp/parser.test.ts tests/unit/whatsapp/handler.test.ts",
-    "format:check": "prettier --check .github/workflows/node-ci.yml package.json .prettierrc.json eslint.config.mjs src/nlp/parser.ts src/stellar/dlq.ts src/whatsapp/handler.ts src/whatsapp/userManager.ts tests/helpers/testDb.ts tests/integration/stellar/events.test.ts tests/unit/nlp/parser.test.ts tests/unit/whatsapp/handler.test.ts",
+    "format": "prettier --write .github/workflows/node-ci.yml package.json .prettierrc.json eslint.config.mjs src/nlp/parser.ts src/stellar/dlq.ts src/whatsapp/handler.ts src/whatsapp/userManager.ts tests/unit/stellar/dlq-alerts.test.ts",
+    "format:check": "prettier --check .github/workflows/node-ci.yml package.json .prettierrc.json eslint.config.mjs src/nlp/parser.ts src/stellar/dlq.ts src/whatsapp/handler.ts src/whatsapp/userManager.ts tests/unit/stellar/dlq-alerts.test.ts",
     "prisma:generate": "npx prisma generate",
     "prisma:generate": "npx prisma generate"
   },
