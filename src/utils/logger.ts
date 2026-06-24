@@ -128,3 +128,37 @@ export function addCloudLoggingAdapter(adapter: winston.transport): void {
 
 // Export for testing
 export { redactSensitiveData, SENSITIVE_PATTERNS }
+
+/**
+ * Structured logging for background jobs and scheduled tasks.
+ * Emits a single log entry with job name, duration, status, and correlation ID.
+ *
+ * @param jobName - Name of the job (e.g. "session_cleanup", "rebalance_check")
+ * @param status - 'success' or 'failed'
+ * @param durationSeconds - Execution time in seconds
+ * @param correlationId - Optional correlation ID for tracing
+ * @param details - Optional additional context (row count, error message, etc)
+ */
+export function logBackgroundJob(
+  jobName: string,
+  status: 'success' | 'failed',
+  durationSeconds: number,
+  correlationId?: string,
+  details?: Record<string, any>
+): void {
+  const logContext = {
+    jobName,
+    status,
+    durationSeconds: Number(durationSeconds.toFixed(3)),
+    ...(correlationId && { correlationId }),
+    ...details,
+  }
+
+  const message = `[${jobName}] completed in ${durationSeconds.toFixed(3)}s with status ${status}`
+
+  if (status === 'failed') {
+    logger.error(message, logContext)
+  } else {
+    logger.info(message, logContext)
+  }
+}
