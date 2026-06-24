@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import crypto from 'node:crypto'
 import db from '../db'
 import { logger } from '../utils/logger'
+import { recordAuthFailure } from '../utils/metrics'
 
 const prisma = db as any
 
@@ -67,6 +68,7 @@ export async function requireAdminAuth(
   const rawToken = getTokenFromRequest(req)
 
   if (!rawToken) {
+    recordAuthFailure(req.path, 'missing_token')
     unauthorized(res)
     return
   }
@@ -75,9 +77,6 @@ export async function requireAdminAuth(
     const now = new Date()
     const tokenPrefix = deriveTokenPrefix(rawToken)
 
-    // ── Narrow candidate set via the fast SHA-256 prefix ──────────────────
-    // The WHERE clause filters out revoked/expired rows AND uses tokenPrefix
-    // to avoid a full-table bcrypt scan.  Typically returns exactly 1 row.
     const candidates = await prisma.adminApiKey.findMany({
       where: {
         tokenPrefix,
@@ -109,6 +108,7 @@ export async function requireAdminAuth(
     }
 
     if (!matched) {
+      recordAuthFailure(req.path, 'invalid_token')
       logger.warn('[AdminAuth] Invalid admin token attempt', {
         ip: req.ip,
         path: req.originalUrl || req.path,
@@ -118,7 +118,6 @@ export async function requireAdminAuth(
       return
     }
 
-    // ── Update lastUsedAt asynchronously — don't block the request ────────
     prisma.adminApiKey
       .update({
         where: { id: matched.id },
@@ -134,6 +133,7 @@ export async function requireAdminAuth(
     res.locals.adminAuth = matched
     next()
   } catch (error) {
+    recordAuthFailure(req.path, 'auth_error')
     logger.error('[AdminAuth] Middleware error', error)
     res.status(500).json({
       success: false,

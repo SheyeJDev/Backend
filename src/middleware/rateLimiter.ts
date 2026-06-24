@@ -1,6 +1,8 @@
 import { type Request, type Response, type NextFunction } from 'express'
 import rateLimit from 'express-rate-limit'
 import { config } from '../config/env'
+import { recordRateLimitHit } from '../utils/metrics'
+import { logger } from '../utils/logger'
 
 // ── Trusted-IP / service-token bypass ─────────────────────────────────────
 
@@ -49,6 +51,38 @@ function skipUnlessLimited(req: Request): boolean {
   return isTrusted(req) || isHealthProbe(req)
 }
 
+/**
+ * Extract the route group from the request path for metrics labeling.
+ * Maps paths to meaningful groups (e.g., /api/auth/* -> auth, /api/admin/* -> admin).
+ */
+function getRouteGroup(path: string): string {
+  const match = path.match(/^\/api\/(\w+)/)
+  return match ? match[1] : 'general'
+}
+
+/**
+ * Handler called when rate limit is exceeded.
+ */
+function handleRateLimitExceeded(
+  req: any,
+  res: any,
+  options: { limiterType: string }
+): void {
+  const routeGroup = getRouteGroup(req.path)
+  recordRateLimitHit(routeGroup, options.limiterType)
+
+  logger.warn('[RateLimit] Rate limit exceeded', {
+    ip: req.ip,
+    path: req.path,
+    method: req.method,
+    limiterType: options.limiterType,
+  })
+
+  res.status(429).json({
+    error: 'Too many requests. Please try again later.',
+  })
+}
+
 // ── Rate limiters ──────────────────────────────────────────────────────────
 
 /**
@@ -64,6 +98,7 @@ export const rateLimiter = rateLimit({
   message: {
     error: 'Too many requests. Please try again later.',
   },
+  handler: (req, res) => handleRateLimitExceeded(req, res, { limiterType: 'global' }),
 })
 
 /**
@@ -79,6 +114,7 @@ export const authRateLimiter = rateLimit({
   message: {
     error: 'Too many authentication attempts. Please try again in 15 minutes.',
   },
+  handler: (req, res) => handleRateLimitExceeded(req, res, { limiterType: 'auth' }),
 })
 
 /**
@@ -94,6 +130,7 @@ export const adminRateLimiter = rateLimit({
   message: {
     error: 'Too many requests to the admin API. Please try again later.',
   },
+  handler: (req, res) => handleRateLimitExceeded(req, res, { limiterType: 'admin' }),
 })
 
 /**
@@ -109,6 +146,7 @@ export const webhookRateLimiter = rateLimit({
   message: {
     error: 'Too many webhook requests. Please try again later.',
   },
+  handler: (req, res) => handleRateLimitExceeded(req, res, { limiterType: 'webhook' }),
 })
 
 /**
@@ -124,4 +162,5 @@ export const internalRateLimiter = rateLimit({
   message: {
     error: 'Too many requests from this service. Please slow down.',
   },
+  handler: (req, res) => handleRateLimitExceeded(req, res, { limiterType: 'internal' }),
 })

@@ -224,6 +224,29 @@ export const externalServiceErrorsTotal = new client.Counter({
   registers: [register],
 })
 
+// ── Rate Limit & Auth Metrics ────────────────────────────────────────────────
+
+export const rateLimitHitsTotal = new client.Counter({
+  name: 'rate_limit_hits_total',
+  help: 'Total number of rate limit hits by route group',
+  labelNames: ['route_group', 'limiter_type'] as const,
+  registers: [register],
+})
+
+export const authFailuresTotal = new client.Counter({
+  name: 'auth_failures_total',
+  help: 'Total number of authentication failures',
+  labelNames: ['endpoint', 'failure_type'] as const,
+  registers: [register],
+})
+
+export const rateLimitActiveViolations = new client.Gauge({
+  name: 'rate_limit_active_violations',
+  help: 'Current number of active rate limit violations by route group',
+  labelNames: ['route_group'] as const,
+  registers: [register],
+})
+
 // ── Helper Functions ─────────────────────────────────────────────────────────────
 
 /**
@@ -361,6 +384,27 @@ export function recordExternalServiceError(
   errorType: string
 ): void {
   externalServiceErrorsTotal.inc({ service, error_type: errorType })
+}
+
+/**
+ * Record a rate limit hit
+ */
+export function recordRateLimitHit(routeGroup: string, limiterType: string): void {
+  rateLimitHitsTotal.inc({ route_group: routeGroup, limiter_type: limiterType })
+}
+
+/**
+ * Record an authentication failure
+ */
+export function recordAuthFailure(endpoint: string, failureType: string): void {
+  authFailuresTotal.inc({ endpoint, failure_type: failureType })
+}
+
+/**
+ * Update active rate limit violations
+ */
+export function updateRateLimitViolations(routeGroup: string, count: number): void {
+  rateLimitActiveViolations.set({ route_group: routeGroup }, count)
 }
 
 /**

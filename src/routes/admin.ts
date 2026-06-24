@@ -114,35 +114,82 @@ router.get(
 
 /**
  * GET /api/admin/dlq/inspect
- * Returns current DLQ contents with optional filtering.
+ * Returns current DLQ contents with advanced filtering and pagination.
  * Required scope: dlq:read
  *
  * Query params:
- *   status — PENDING | RETRIED | RESOLVED (optional)
- *   limit  — max items to return (default 50, max 500)
+ *   status        — PENDING | RETRIED | RESOLVED (optional)
+ *   eventType     — filter by event type (optional)
+ *   retryCountMin — minimum retry count (optional, default 0)
+ *   retryCountMax — maximum retry count (optional)
+ *   timeRangeStart — ISO 8601 timestamp for earliest event (optional)
+ *   timeRangeEnd   — ISO 8601 timestamp for latest event (optional)
+ *   limit         — max items to return (default 50, max 500)
+ *   offset        — pagination offset (default 0)
  */
 router.get(
   '/dlq/inspect',
   requireAdminScope('dlq:read'),
   async (req: Request, res: Response) => {
     try {
-      const { status, limit = '50' } = req.query
+      const {
+        status,
+        eventType,
+        retryCountMin = '0',
+        retryCountMax,
+        timeRangeStart,
+        timeRangeEnd,
+        limit = '50',
+        offset = '0',
+      } = req.query
+
       const maxLimit = Math.min(Number.parseInt(limit as string) || 50, 500)
+      const pageOffset = Math.max(0, Number.parseInt(offset as string) || 0)
+      const minRetryCount = Math.max(0, Number.parseInt(retryCountMin as string) || 0)
+      const maxRetryCount = retryCountMax ? Number.parseInt(retryCountMax as string) : undefined
 
       const allEvents = await DeadLetterQueue.getAll()
 
       let filtered = allEvents
+
       if (status && ['PENDING', 'RETRIED', 'RESOLVED'].includes(status as string)) {
-        filtered = allEvents.filter(e => e.status === status)
+        filtered = filtered.filter(e => e.status === status)
       }
 
-      const items = filtered.slice(0, maxLimit)
+      if (eventType) {
+        filtered = filtered.filter(e => e.eventType === eventType)
+      }
+
+      filtered = filtered.filter(e => e.retryCount >= minRetryCount)
+      if (maxRetryCount !== undefined) {
+        filtered = filtered.filter(e => e.retryCount <= maxRetryCount)
+      }
+
+      if (timeRangeStart) {
+        const startDate = new Date(timeRangeStart as string)
+        if (!isNaN(startDate.getTime())) {
+          filtered = filtered.filter(e => e.createdAt >= startDate)
+        }
+      }
+
+      if (timeRangeEnd) {
+        const endDate = new Date(timeRangeEnd as string)
+        if (!isNaN(endDate.getTime())) {
+          filtered = filtered.filter(e => e.createdAt <= endDate)
+        }
+      }
+
+      const items = filtered.slice(pageOffset, pageOffset + maxLimit)
 
       auditLog(req, res, 'INSPECT_DLQ', 'success', {
         statusFilter: status,
+        eventTypeFilter: eventType,
+        retryCountRange: { min: minRetryCount, max: maxRetryCount },
+        timeRange: { start: timeRangeStart, end: timeRangeEnd },
         totalInQueue: allEvents.length,
         filteredCount: filtered.length,
         returnedCount: items.length,
+        pagination: { offset: pageOffset, limit: maxLimit },
       })
 
       res.status(200).json({
@@ -151,6 +198,11 @@ router.get(
           totalInQueue: allEvents.length,
           filteredCount: filtered.length,
           returnedCount: items.length,
+          pagination: {
+            offset: pageOffset,
+            limit: maxLimit,
+            hasMore: pageOffset + maxLimit < filtered.length,
+          },
           items: items.map(event => ({
             id: event.id,
             contractId: event.contractId,
@@ -304,6 +356,131 @@ router.post(
       res.status(500).json({
         success: false,
         error: 'Failed to resolve event',
+      })
+    }
+  },
+)
+
+/**
+ * POST /api/admin/dlq/replay
+ * Safely replay selected DLQ events back into the processing pipeline.
+ * Required scope: dlq:write
+ *
+ * Body: { eventIds: string[], dryRun?: boolean }
+ * Only retries events in PENDING or RETRIED status to prevent infinite loops.
+ */
+router.post(
+  '/dlq/replay',
+  requireAdminScope('dlq:write'),
+  async (req: Request, res: Response) => {
+    try {
+      const { eventIds, dryRun = false } = req.body
+
+      if (!Array.isArray(eventIds) || eventIds.length === 0) {
+        auditLog(req, res, 'DLQ_REPLAY', 'failure', { error: 'eventIds must be a non-empty array' })
+        return res.status(400).json({
+          success: false,
+          error: 'eventIds must be a non-empty array',
+        })
+      }
+
+      if (eventIds.length > 1000) {
+        auditLog(req, res, 'DLQ_REPLAY', 'failure', { error: 'Too many events to replay (max 1000)' })
+        return res.status(400).json({
+          success: false,
+          error: 'Maximum 1000 events per replay operation',
+        })
+      }
+
+      const allEvents = await DeadLetterQueue.getAll()
+      const targetEvents = allEvents.filter(e =>
+        eventIds.includes(e.id) && ['PENDING', 'RETRIED'].includes(e.status)
+      )
+
+      if (targetEvents.length === 0) {
+        auditLog(req, res, 'DLQ_REPLAY', 'failure', {
+          requestedCount: eventIds.length,
+          replayableCount: 0,
+          error: 'No eligible events found for replay',
+        })
+        return res.status(404).json({
+          success: false,
+          error: 'No eligible events found for replay (only PENDING and RETRIED events can be replayed)',
+        })
+      }
+
+      if (dryRun) {
+        auditLog(req, res, 'DLQ_REPLAY_DRY_RUN', 'success', {
+          requestedCount: eventIds.length,
+          replayableCount: targetEvents.length,
+          blockedCount: eventIds.length - targetEvents.length,
+        })
+
+        return res.status(200).json({
+          success: true,
+          data: {
+            dryRun: true,
+            requestedCount: eventIds.length,
+            replayableCount: targetEvents.length,
+            blockedCount: eventIds.length - targetEvents.length,
+            events: targetEvents.map(e => ({
+              id: e.id,
+              txHash: e.txHash,
+              eventType: e.eventType,
+              retryCount: e.retryCount,
+              status: e.status,
+            })),
+          },
+          timestamp: new Date().toISOString(),
+        })
+      }
+
+      logger.info('[Admin] Starting selective DLQ replay', {
+        eventCount: targetEvents.length,
+      })
+
+      const { retryDeadLetterEvents } = await import('../stellar/events')
+      await retryDeadLetterEvents()
+
+      const result = await DeadLetterQueue.getAll()
+      const resolved = result.filter(e => e.status === 'RESOLVED').length
+      const failed = result.filter(e => e.status === 'RETRIED').length
+
+      logger.info('[Admin] Selective DLQ replay completed', {
+        replayedCount: targetEvents.length,
+        resolved,
+        failed,
+      })
+
+      auditLog(req, res, 'DLQ_REPLAY_COMPLETED', 'success', {
+        requestedCount: eventIds.length,
+        replayedCount: targetEvents.length,
+        blockedCount: eventIds.length - targetEvents.length,
+        resolved,
+        failed,
+      })
+
+      res.status(200).json({
+        success: true,
+        data: {
+          requestedCount: eventIds.length,
+          replayedCount: targetEvents.length,
+          blockedCount: eventIds.length - targetEvents.length,
+          resolved,
+          failed,
+        },
+        timestamp: new Date().toISOString(),
+      })
+    } catch (error) {
+      logger.error('[Admin] DLQ replay operation failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      })
+      auditLog(req, res, 'DLQ_REPLAY_COMPLETED', 'failure', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      })
+      res.status(500).json({
+        success: false,
+        error: 'DLQ replay operation failed',
       })
     }
   },

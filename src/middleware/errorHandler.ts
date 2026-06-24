@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import { logger } from '../utils/logger'
+import { ErrorResponses } from '../utils/errorResponse'
 
 export function errorHandler(
   err: Error,
@@ -16,9 +17,12 @@ export function errorHandler(
     method: req.method,
   })
 
-  res.status(500).json({
-    error: 'Internal server error',
+  const isDevelopment = process.env.NODE_ENV === 'development'
+  const errorResponse = ErrorResponses.internalError(
+    'Internal server error',
     requestId,
-    message: process.env.NODE_ENV === 'development' ? err.message : undefined,
-  })
+    isDevelopment ? { message: err.message } : undefined
+  )
+
+  res.status(500).json(errorResponse)
 }
