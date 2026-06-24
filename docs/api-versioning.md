@@ -30,7 +30,7 @@ All API routes follow a consistent versioning structure:
 ### Examples
 
 ```
-GET    /api/v1/auth/challenge       (POST a challenge request)
+GET    /api/v1/auth/challenge       (GET a challenge)
 POST   /api/v1/auth/verify          (Verify a Stellar signature)
 POST   /api/v1/auth/logout          (Revoke the active session)
 GET    /api/v1/portfolio/balance    (Fetch user portfolio balance)

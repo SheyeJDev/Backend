@@ -500,11 +500,11 @@ async function main() {
 
   // Save metrics
   const metricsPath = saveMetricsToFile(metrics, METRICS_OUTPUT_DIR);
-  console.log(`📝 Rotation metrics saved: ${metricsPath}`);
+  console.log(`[metrics] Rotation metrics saved: ${metricsPath}`);
 
   if (dryRun) {
     const reportPath = saveDryRunReport(metrics, METRICS_OUTPUT_DIR);
-    console.log(`📋 Dry-run report saved: ${reportPath}`);
+    console.log(`[report] Dry-run report saved: ${reportPath}`);
   }
 
   // Exit with appropriate code

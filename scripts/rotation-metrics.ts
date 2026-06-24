@@ -319,7 +319,9 @@ export function generateDryRunReport(metrics: RotationMetrics): string {
   const durationSec = metrics.durationMs !== undefined ? (metrics.durationMs / 1000).toFixed(2) : 'N/A';
   const isReady = metrics.failedRotations === 0;
   const readiness = isReady ? 'READY' : 'NOT READY';
-  const dbDisplay = metrics.databaseUrl ?? 'not available';
+  const dbDisplay = metrics.databaseUrl
+    ? redactDatabaseUrl(metrics.databaseUrl)
+    : 'not available';
 
   const sep = '=================================================================';
   const lines: string[] = [];
